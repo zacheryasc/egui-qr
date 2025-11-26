@@ -1,4 +1,4 @@
-use egui::{Color32, CornerRadius, Rect, Response, Sense, Stroke, StrokeKind, Ui, Widget, vec2};
+use egui::{Color32, CornerRadius, Rect, Response, Sense, Ui, Widget, vec2};
 use qrcode::types::QrError;
 use qrcode::{Color, QrCode};
 
@@ -33,42 +33,69 @@ impl<'a> QrCodeWidget<'a> {
         self
     }
 }
-
-impl Widget for QrCodeWidget<'_> {
-    fn ui(self, ui: &mut Ui) -> Response {
-        let outer_size = ui.available_size();
-
+impl QrCodeWidget<'_> {
+    pub fn show(self, ui: &mut Ui) -> Response {
+        self.ui(ui)
+    }
+    
+    /// Calculate the desired size for layout purposes
+    fn desired_size(&self, ui: &Ui) -> egui::Vec2 {
         let code_ref = match &self.code {
             CodeSrc::Ref(code) => code,
             CodeSrc::Owned(q) => q,
         };
-        let w = code_ref.width();
-        let min_size = outer_size.x.min(outer_size.y);
-        let scale = min_size / (w as f32 + (self.quiet_zone * 2.));
-        let start = ui.cursor().min + vec2(self.quiet_zone * scale, self.quiet_zone * scale);
-        let (response, painter) = ui.allocate_painter(vec2(min_size, min_size), Sense::click());
+        let w = code_ref.width() as f32;
+        let total_size = w + (self.quiet_zone * 2.0);
+        vec2(total_size, total_size) * ui.spacing().interact_size.y // Scale with UI
+    }
+}
 
-        painter.rect(response.rect, CornerRadius::ZERO, Color32::WHITE, Stroke::NONE, StrokeKind::Inside);
-        let mut ctr = 0;
-        for c in code_ref.to_colors() {
-            let row = ctr / w;
-            let col = ctr % w;
-            let c_start = start.floor() + vec2(col as f32 * scale, row as f32 * scale).floor();
-            let c_end = c_start.ceil() + vec2(scale, scale).ceil();
-            if matches!(c, Color::Dark) {
-                painter.rect(
-                    Rect::from_min_max(c_start, c_end),
+impl Widget for QrCodeWidget<'_> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let desired_size = self.desired_size(ui);
+        let response = ui.allocate_response(desired_size, Sense::click());
+        
+        if ui.is_rect_visible(response.rect) {
+            self.paint_at(ui, response.rect);
+        }
+        
+        response
+    }
+}
+
+impl QrCodeWidget<'_> {
+    /// Paint the QR code at a specific rectangle
+    fn paint_at(&self, ui: &Ui, rect: Rect) {
+        let painter = ui.painter();
+        let code_ref = match &self.code {
+            CodeSrc::Ref(code) => code,
+            CodeSrc::Owned(q) => q,
+        };
+        
+        let w = code_ref.width();
+        let total_size = w as f32 + (self.quiet_zone * 2.0);
+        let cell_size = rect.width() / total_size;
+        
+        // Fill background
+        painter.rect_filled(rect, CornerRadius::ZERO, Color32::WHITE);
+        
+        let quiet_zone_offset = self.quiet_zone * cell_size;
+        
+        for (i, color) in code_ref.to_colors().iter().enumerate() {
+            if matches!(color, Color::Dark) {
+                let row = i / w;
+                let col = i % w;
+                
+                let pos = rect.left_top() 
+                    + vec2(quiet_zone_offset, quiet_zone_offset)
+                    + vec2(col as f32 * cell_size, row as f32 * cell_size);
+                
+                painter.rect_filled(
+                    Rect::from_min_size(pos, vec2(cell_size, cell_size)),
                     CornerRadius::ZERO,
-                    match c {
-                        Color::Light => Color32::WHITE,
-                        Color::Dark => Color32::BLACK,
-                    },
-                    Stroke::NONE,
-                    StrokeKind::Inside
+                    Color32::BLACK,
                 );
             }
-            ctr += 1;
         }
-        response
     }
 }
